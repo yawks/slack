@@ -19,6 +19,8 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	"maunium.net/go/mautrix/bridge/commands"
@@ -40,6 +42,7 @@ func (br *SlackBridge) RegisterCommands() {
 		cmdLogout,
 		cmdSyncTeams,
 		cmdDeletePortal,
+		cmdListUsers,
 	)
 }
 
@@ -196,4 +199,60 @@ func fnDeletePortal(ce *WrappedCommandEvent) {
 	ce.Portal.delete()
 	ce.Portal.cleanup(false)
 	ce.Log.Infofln("Deleted portal")
+}
+
+var cmdListUsers = &commands.FullHandler{
+	Func: wrapCommand(fnListUsers),
+	Name: "list-users",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionAuth,
+		Description: "List users (50 users)",
+		Args:        "<page>",
+	},
+}
+
+func fnListUsers(ce *WrappedCommandEvent) {
+	if len(ce.Args) == 0 || len(ce.Args) > 2 {
+		ce.Reply("**Usage**: $cmdprefix list-users <team MXID> <(optional) page>\nType _ping_ command to get team MXIDs.")
+		return
+	}
+	teamID := ce.Args[0]
+	team, ok := ce.User.Teams[teamID]
+	if ok {
+		page := 0
+
+		if len(ce.Args) == 2 {
+			p, err := strconv.Atoi(ce.Args[1])
+			if err != nil {
+				page = p
+			}
+		}
+
+		slackUsers := team.GetSlackUsers(page)
+		sort.Slice(slackUsers, func(i, j int) bool {
+			return slackUsers[i].Name < slackUsers[j].Name
+		})
+		for _, slackUser := range slackUsers {
+			if slackUser.Deleted == false {
+				name := slackUser.Name
+				if slackUser.RealName != "" {
+					name = slackUser.RealName
+				}
+
+				mxID := ce.Bridge.FormatPuppetMXID(teamID + "-" + slackUser.ID) //"#" + team.GetSlackUserNameBySlackID(slackUser.ID) + ":" + ce.Bridge.Config.Homeserver.Domain
+				/*userTeam := ce.Bridge.DB.UserTeam.GetAllBySlackID(slackUser.ID)
+				if userTeam != nil {
+					mxID = "!" + string(userTeam.Key.MXID)
+				}*/
+				result := fmt.Sprintf("- %s: [%s](https://matrix.to/#/%s)\n",
+					name,
+					name,
+					//ce.Bridge.Config.AppService.Bot.Avatar,
+					//"https://matrix.to/img/matrix-badge.svg",
+					mxID,
+				)
+				ce.Reply(result)
+			}
+		}
+	}
 }

@@ -89,6 +89,36 @@ func (utq *UserTeamQuery) GetAllBySlackTeamID(teamID string) []*UserTeam {
 	return tokens
 }
 
+func (utq *UserTeamQuery) GetAllBySlackID(slackId string) *UserTeam {
+	var userTeam *UserTeam
+	query := userTeamSelect + "WHERE ut.slack_id=$1"
+
+	rows, err := utq.db.Query(query, slackId)
+	if err != nil || rows == nil {
+		return nil
+	}
+
+	defer rows.Close()
+
+	userTeam = nil
+	for rows.Next() {
+		userTeam = utq.New().Scan(rows)
+		break
+	}
+
+	return userTeam
+}
+
+func (ut *UserTeam) GetSlackUsers(page int) []slack.User {
+	slackUsers, err := ut.Client.GetUsers()
+	if err != nil {
+		ut.log.Warn("Impossible to load slack users")
+		slackUsers = nil
+	}
+
+	return slackUsers
+}
+
 func (utq *UserTeamQuery) GetFirstUserTeamForPortal(portal *PortalKey) *UserTeam {
 	query := userTeamSelect + `
 		JOIN user_team_portal utp ON utp.matrix_user_id = ut.mxid

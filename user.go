@@ -549,15 +549,17 @@ func (user *User) SyncPortals(userTeam *database.UserTeam, force bool) error {
 		delete(channelInfo, dbPortal.Key.ChannelID)
 	}
 
-	for _, channel := range channelInfo {
-		// Remaining ones in the map are new channels that weren't handled yet
-		key := database.NewPortalKey(userTeam.Key.TeamID, channel.ID)
-		portal := user.bridge.GetPortalByID(key)
-		if portal.MXID != "" {
-			portal.UpdateInfo(user, userTeam, &channel, force)
-			portal.InsertUser(userTeam.Key)
-		} else {
-			portal.CreateMatrixRoom(user, userTeam, &channel, true)
+	if user.bridge.Config.Bridge.ChannelsCreationAuto {
+		for _, channel := range channelInfo {
+			// Remaining ones in the map are new channels that weren't handled yet
+			key := database.NewPortalKey(userTeam.Key.TeamID, channel.ID)
+			portal := user.bridge.GetPortalByID(key)
+			if portal.MXID != "" {
+				portal.UpdateInfo(user, userTeam, &channel, force)
+				portal.InsertUser(userTeam.Key)
+			} else {
+				portal.CreateMatrixRoom(user, userTeam, &channel, true)
+			}
 		}
 	}
 

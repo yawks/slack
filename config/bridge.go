@@ -100,6 +100,8 @@ type BridgeConfig struct {
 
 	Permissions bridgeconfig.PermissionConfig `yaml:"permissions"`
 
+	ChannelsCreationAuto bool `yaml:"channels_creation_auto"`
+
 	Backfill struct {
 		Enable bool `yaml:"enable"`
 
