@@ -1,5 +1,3 @@
-package main
-
 // mautrix-slack - A Matrix-Slack puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
@@ -16,10 +14,14 @@ package main
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+package main
+
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slack-go/slack"
 	"github.com/yuin/goldmark"
@@ -28,11 +30,12 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	goldmarkUtil "github.com/yuin/goldmark/util"
-	"go.mau.fi/mautrix-slack/database"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util"
+
+	"go.mau.fi/mautrix-slack/database"
 )
 
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
@@ -181,6 +184,22 @@ func (n *astSlackURL) String() string {
 	}
 }
 
+type astSlackSpecialMention struct {
+	astSlackTag
+
+	content string
+}
+
+var slackSpecialMentionRegex = regexp.MustCompile(`<(#|@|!|)([^|>]+)(\|([^|>]*))?>`)
+
+func (n *astSlackSpecialMention) String() string {
+	if n.label != "" {
+		return fmt.Sprintf("<!%s|%s>", n.content, n.label)
+	} else {
+		return fmt.Sprintf("<!%s>", n.content)
+	}
+}
+
 type slackTagParser struct{}
 
 // Regex matching Slack docs at https://api.slack.com/reference/surfaces/formatting#retrieving-messages
@@ -211,6 +230,8 @@ func (s *slackTagParser) Parse(parent ast.Node, block text.Reader, pc parser.Con
 		return &astSlackUserMention{astSlackTag: tag, userID: content}
 	case "#":
 		return &astSlackChannelMention{astSlackTag: tag, channelID: content}
+	case "!":
+		return &astSlackSpecialMention{astSlackTag: tag, content: content}
 	case "":
 		return &astSlackURL{astSlackTag: tag, url: content}
 	default:
@@ -263,6 +284,47 @@ func (r *slackTagHTMLRenderer) renderSlackTag(w goldmarkUtil.BufWriter, source [
 			}
 		}
 		return
+	case *astSlackSpecialMention:
+		parts := strings.Split(node.content, "^")
+		switch parts[0] {
+		case "date":
+			timestamp, converr := strconv.ParseInt(parts[1], 10, 64)
+			if converr != nil {
+				return
+			}
+			t := time.Unix(timestamp, 0)
+
+			mapping := map[string]string{
+				"{date_num}":          t.Local().Format("2006-01-02"),
+				"{date}":              t.Local().Format("January 2, 2006"),
+				"{date_pretty}":       t.Local().Format("January 2, 2006"),
+				"{date_short}":        t.Local().Format("Jan 2, 2006"),
+				"{date_short_pretty}": t.Local().Format("Jan 2, 2006"),
+				"{date_long}":         t.Local().Format("Monday, January 2, 2006"),
+				"{date_long_pretty}":  t.Local().Format("Monday, January 2, 2006"),
+				"{time}":              t.Local().Format("15:04 MST"),
+				"{time_secs}":         t.Local().Format("15:04:05 MST"),
+			}
+
+			for k, v := range mapping {
+				parts[2] = strings.ReplaceAll(parts[2], k, v)
+			}
+
+			if len(parts) > 3 {
+				_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, parts[3], parts[2])
+			} else {
+				_, _ = w.WriteString(parts[2])
+			}
+			return
+		case "channel", "everyone", "here":
+			// do @room mentions?
+			return
+		case "subteam":
+			// do subteam handling? more spaces?
+			return
+		default:
+			return
+		}
 	case *astSlackURL:
 		label := node.label
 		if label == "" {
